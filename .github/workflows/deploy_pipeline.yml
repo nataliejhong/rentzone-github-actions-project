@@ -145,6 +145,7 @@ jobs:
             environment_file_name: ${{ env.ENVIRONMENT_FILE_NAME }}
             env_file_bucket_name: ${{ env.ENV_FILE_BUCKET_NAME }}
 
+
     # Create ECR repository
     create_ecr_repository:
         name: Create ECR repository
@@ -171,6 +172,7 @@ jobs:
             if: env.repo_name != env.IMAGE_NAME
             run: |
                 aws ecr create-repository --repository-name ${{ env.IMAGE_NAME }} 
+
 
     # Start self-hosted EC2 runner
     start_runner:
@@ -211,6 +213,7 @@ jobs:
         outputs:
             label: ${{ steps.start-ec2-runner.outputs.label }}
             ec2-instance-id: ${{ steps.start-ec2-runner.outputs.ec2-instance-id }}
+
 
     # Build and push Docker image to ECR
     build_and_push_image:
@@ -261,6 +264,7 @@ jobs:
             run: |
                 docker push ${{ secrets.ECR_REGISTRY }}/${{ env.IMAGE_NAME }}
 
+
     # Create environment file and export to S3 
     export_env_variables:
         name: Create environment file and export to S3 
@@ -294,6 +298,7 @@ jobs:
               ENVIRONMENT_FILE_NAME: ${{ needs.deploy_aws_infrastructure.outputs.environment_file_name }}
               ENV_FILE_BUCKET_NAME: ${{ needs.deploy_aws_infrastructure.outputs.env_file_bucket_name }}
             run: aws s3 cp ${{ env.ENVIRONMENT_FILE_NAME }} s3://${{ env.ENV_FILE_BUCKET_NAME }}/${{ env.ENVIRONMENT_FILE_NAME }}
+
 
     # Migrate data into RDS database with Flyway
     migrate_data:
@@ -332,3 +337,25 @@ jobs:
                 -user=${{ env.FLYWAY_USER }} \
                 -password=${{ env.FLYWAY_PASSWORD }} \
                 -locations=${{ env.FLYWAY_LOCATION }} migrate
+
+
+    # Stop the self-hosted EC2 runner
+    stop_runner:
+        name: Stop self-hosted EC2 runner
+        needs:
+          - configure_aws_credentials
+          - deploy_aws_infrastructure
+          - start_runner
+          - build_and_push_image
+          - export_env_variables
+          - migrate_data
+        if: needs.deploy_aws_infrastructure.outputs.terraform_action != 'destroy' && always() 
+        runs-on: ubuntu-latest
+        steps:
+          - name: Stop EC2 runner
+            uses: machulav/ec2-github-runner@v2
+            with:
+              mode: 
+              github-token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+              label: ${{ needs.start_runner.outputs.label }}
+              ec2-instance-id: ${{ needs.start_runner.outputs.ec2-instance-id }}
